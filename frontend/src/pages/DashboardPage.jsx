@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useLocation } from 'react-router-dom';
-import { Layers, AlertTriangle, TrendingUp, Clock, CheckCircle, Search, Download, FileText } from 'lucide-react';
+import { Layers, AlertTriangle, TrendingUp, Clock, CheckCircle, Search, Download, FileText, ChevronDown } from 'lucide-react';
 import { api } from '../services/api';
 import FeatureDetailPanel from '../components/FeatureDetailPanel';
 import DriftHistogram from '../components/DriftHistogram';
+import FeatureDistributionChart from '../components/FeatureDistributionChart';
 
 const DashboardPage = ({ selectedProject }) => {
   const location = useLocation();
   const [analysis, setAnalysis] = useState(null);
   const [selectedFeature, setSelectedFeature] = useState(null);
+  const [selectedDistributionFeature, setSelectedDistributionFeature] = useState('');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMode, setFilterMode] = useState('all');
@@ -299,6 +301,134 @@ const DashboardPage = ({ selectedProject }) => {
       {selectedFeature && (
         <DriftHistogram feature={selectedFeature} />
       )}
+
+      {/* Feature Distribution Analysis Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="card p-6 mb-6"
+      >
+        <h2 className="text-xl font-bold mb-4">Feature Distribution Analysis</h2>
+        <p className="text-sm text-slate-400 mb-6">
+          Compare baseline and current distributions for any feature to visualize drift patterns
+        </p>
+
+        {/* Feature Selector */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-slate-300 mb-2">
+            Select Feature to Analyze
+          </label>
+          <div className="relative">
+            <select
+              value={selectedDistributionFeature}
+              onChange={(e) => setSelectedDistributionFeature(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg appearance-none cursor-pointer bg-[#1a1f2e] border border-[#2d3748] text-slate-200"
+            >
+              <option value="">Choose a feature...</option>
+              {features.map((feature) => (
+                <option key={feature.name} value={feature.name}>
+                  {feature.name} - Drift Score: {feature.ks_statistic.toFixed(3)}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              size={20}
+              className="absolute right-4 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none"
+            />
+          </div>
+        </div>
+
+        {/* Distribution Chart */}
+        {selectedDistributionFeature ? (
+          <div className="glass rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold mb-1">
+                  Distribution Comparison: {selectedDistributionFeature}
+                </h3>
+                <p className="text-sm text-slate-400">
+                  Blue line represents baseline data, Orange line represents current data
+                </p>
+              </div>
+              {(() => {
+                const feature = features.find(f => f.name === selectedDistributionFeature);
+                if (feature) {
+                  const status = getDriftStatus(feature.p_value);
+                  return (
+                    <span className={`status-pill status-${status.color}`}>
+                      <span>{status.icon}</span>
+                      <span>{status.label}</span>
+                    </span>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+            
+            {(() => {
+              const feature = features.find(f => f.name === selectedDistributionFeature);
+              if (feature && feature.histogram_data && feature.histogram_data.histogram) {
+                return (
+                  <FeatureDistributionChart
+                    featureName={selectedDistributionFeature}
+                    histogramData={feature.histogram_data.histogram}
+                  />
+                );
+              }
+              return (
+                <div className="flex items-center justify-center h-64 text-slate-400">
+                  <p>Distribution data not available for this feature</p>
+                </div>
+              );
+            })()}
+
+            {/* Statistics Summary */}
+            {(() => {
+              const feature = features.find(f => f.name === selectedDistributionFeature);
+              if (feature) {
+                return (
+                  <div className="grid grid-cols-4 gap-4 mt-6 pt-6 border-t border-[#2d3748]">
+                    <div>
+                      <p className="text-xs text-slate-400 mb-1">KS Statistic</p>
+                      <p className="text-lg font-bold">{feature.ks_statistic.toFixed(4)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400 mb-1">P-Value</p>
+                      <p className="text-lg font-bold">{feature.p_value.toFixed(4)}</p>
+                    </div>
+                    {feature.wasserstein_distance !== undefined && (
+                      <div>
+                        <p className="text-xs text-slate-400 mb-1">Wasserstein Distance</p>
+                        <p className="text-lg font-bold text-purple-400">
+                          {feature.wasserstein_distance.toFixed(4)}
+                        </p>
+                      </div>
+                    )}
+                    {feature.psi_score !== undefined && (
+                      <div>
+                        <p className="text-xs text-slate-400 mb-1">PSI Score</p>
+                        <p className={`text-lg font-bold ${
+                          feature.psi_score >= 0.25 ? 'text-red-400' :
+                          feature.psi_score >= 0.1 ? 'text-yellow-400' :
+                          'text-green-400'
+                        }`}>
+                          {feature.psi_score.toFixed(4)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              return null;
+            })()}
+          </div>
+        ) : (
+          <div className="glass rounded-lg p-12 text-center">
+            <TrendingUp size={48} className="mx-auto mb-4 text-slate-500" />
+            <p className="text-slate-400">Select a feature from the dropdown to view its distribution comparison</p>
+          </div>
+        )}
+      </motion.div>
 
       {/* Action Buttons */}
       <div className="flex items-center gap-4">

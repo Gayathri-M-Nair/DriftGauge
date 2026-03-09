@@ -74,6 +74,58 @@ class DriftDetector:
             # Return 0 if calculation fails
             return 0.0
     
+    def calculate_histogram_data(self, baseline: pd.Series, current: pd.Series, bins: int = 20) -> Dict:
+        """
+        Calculate histogram data for distribution visualization
+        
+        Args:
+            baseline: Baseline/reference data
+            current: Current/production data
+            bins: Number of bins for histogram
+        
+        Returns:
+            Dictionary with bin edges and frequencies
+        """
+        try:
+            # Use the same bins for both distributions
+            min_val = min(baseline.min(), current.min())
+            max_val = max(baseline.max(), current.max())
+            bin_edges = np.linspace(min_val, max_val, bins + 1)
+            
+            # Calculate histograms
+            baseline_counts, _ = np.histogram(baseline, bins=bin_edges)
+            current_counts, _ = np.histogram(current, bins=bin_edges)
+            
+            # Normalize to get frequencies (percentages)
+            baseline_freq = (baseline_counts / len(baseline)) * 100
+            current_freq = (current_counts / len(current)) * 100
+            
+            # Create bin centers for plotting
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            
+            # Format data for frontend
+            histogram_data = []
+            for i in range(len(bin_centers)):
+                histogram_data.append({
+                    "bin": round(bin_centers[i], 2),
+                    "baseline": round(baseline_freq[i], 2),
+                    "current": round(current_freq[i], 2)
+                })
+            
+            return {
+                "histogram": histogram_data,
+                "bin_edges": bin_edges.tolist(),
+                "baseline_range": [float(baseline.min()), float(baseline.max())],
+                "current_range": [float(current.min()), float(current.max())]
+            }
+        except Exception as e:
+            return {
+                "histogram": [],
+                "bin_edges": [],
+                "baseline_range": [0, 0],
+                "current_range": [0, 0]
+            }
+    
     def get_numeric_columns(self, df: pd.DataFrame) -> List[str]:
         """Get list of numeric columns from dataframe"""
         return [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
@@ -133,6 +185,7 @@ class DriftDetector:
         - Computes Wasserstein distance
         - Calculates PSI (Population Stability Index)
         - Multi-criteria drift detection
+        - Includes histogram data for visualization
         """
         start_time = time.time()
         
@@ -152,6 +205,9 @@ class DriftDetector:
             # Calculate PSI (Population Stability Index)
             psi_score = self.calculate_psi(baseline_df[col], current_df[col])
             
+            # Calculate histogram data for visualization
+            histogram_data = self.calculate_histogram_data(baseline_df[col], current_df[col])
+            
             # Calculate additional statistics
             baseline_mean = baseline_df[col].mean()
             current_mean = current_df[col].mean()
@@ -161,7 +217,7 @@ class DriftDetector:
             current_std = current_df[col].std()
             std_shift = abs(current_std - baseline_std)
             
-            # Store all metrics
+            # Store all metrics including histogram
             feature_scores[col] = {
                 "ks_statistic": ks_stat,
                 "p_value": p_value,
@@ -172,7 +228,8 @@ class DriftDetector:
                 "baseline_mean": baseline_mean,
                 "current_mean": current_mean,
                 "baseline_std": baseline_std,
-                "current_std": current_std
+                "current_std": current_std,
+                "histogram_data": histogram_data  # Add histogram for visualization
             }
             
             # Multi-criteria drift detection
