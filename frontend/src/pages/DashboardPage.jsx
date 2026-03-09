@@ -97,7 +97,7 @@ const DashboardPage = ({ selectedProject }) => {
           <div className="w-10 h-10 rounded-full bg-green-500 bg-opacity-20 flex items-center justify-center">
             <CheckCircle size={20} className="text-green-500" />
           </div>
-          <div>
+          <div className="flex-1">
             <h3 className="font-semibold">Analysis Completed!</h3>
             <p className="text-sm text-slate-400">
               Drift analysis finished in {analysis.report.processing_time || '2.34'} seconds using {analysis.mode === 'fast' ? 'Fast Mode' : 'High Accuracy Mode'}.
@@ -105,6 +105,11 @@ const DashboardPage = ({ selectedProject }) => {
                 <span> Analyzed {analysis.report.samples_used.baseline.toLocaleString()} baseline samples and {analysis.report.samples_used.current.toLocaleString()} current samples.</span>
               )}
             </p>
+            {analysis.mode === 'high_accuracy' && !analysis.report.thresholds && (
+              <p className="text-xs text-yellow-400 mt-1">
+                ⚠️ This analysis was run with an older version. Run a new analysis to see PSI and enhanced metrics.
+              </p>
+            )}
           </div>
         </div>
       </motion.div>
