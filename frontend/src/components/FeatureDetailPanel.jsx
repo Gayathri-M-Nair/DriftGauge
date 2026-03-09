@@ -53,6 +53,73 @@ const FeatureDetailPanel = ({ feature, onClose }) => {
               </div>
             </div>
 
+            {/* Additional High Accuracy Metrics */}
+            {feature.wasserstein_distance !== undefined && (
+              <>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <div className="glass rounded-lg p-4">
+                    <p className="text-sm text-slate-400 mb-1">Wasserstein Distance</p>
+                    <p className="text-2xl font-bold text-purple-400">{feature.wasserstein_distance.toFixed(4)}</p>
+                    <p className="text-xs text-slate-500 mt-1">Earth Mover's Distance</p>
+                  </div>
+                  <div className="glass rounded-lg p-4">
+                    <p className="text-sm text-slate-400 mb-1">PSI Score</p>
+                    <p className={`text-2xl font-bold ${
+                      feature.psi_score >= 0.25 ? 'text-red-400' :
+                      feature.psi_score >= 0.1 ? 'text-yellow-400' :
+                      'text-green-400'
+                    }`}>
+                      {feature.psi_score ? feature.psi_score.toFixed(4) : 'N/A'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {feature.psi_score >= 0.25 ? 'Significant Drift' :
+                       feature.psi_score >= 0.1 ? 'Moderate Drift' :
+                       'No Significant Change'}
+                    </p>
+                  </div>
+                  <div className="glass rounded-lg p-4">
+                    <p className="text-sm text-slate-400 mb-1">Mean Shift</p>
+                    <p className="text-2xl font-bold text-orange-400">
+                      {feature.mean_shift ? feature.mean_shift.toFixed(2) : 'N/A'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {feature.baseline_mean && feature.current_mean && 
+                        `${feature.baseline_mean.toFixed(2)} → ${feature.current_mean.toFixed(2)}`
+                      }
+                    </p>
+                  </div>
+                </div>
+
+                {/* Drift Criteria Explanation */}
+                <div className="glass rounded-lg p-4 mb-6">
+                  <h3 className="text-sm font-semibold mb-3">Drift Detection Criteria</h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">KS Test (p-value &lt; 0.05)</span>
+                      <span className={feature.p_value < 0.05 ? 'text-red-400 font-semibold' : 'text-green-400'}>
+                        {feature.p_value < 0.05 ? '✓ Drifted' : '✗ No Drift'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Wasserstein Distance (&gt; 0.1)</span>
+                      <span className={feature.wasserstein_distance > 0.1 ? 'text-red-400 font-semibold' : 'text-green-400'}>
+                        {feature.wasserstein_distance > 0.1 ? '✓ Drifted' : '✗ No Drift'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">PSI Score (≥ 0.25)</span>
+                      <span className={feature.psi_score >= 0.25 ? 'text-red-400 font-semibold' : 'text-green-400'}>
+                        {feature.psi_score >= 0.25 ? '✓ Drifted' : '✗ No Drift'}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-3 italic">
+                    Feature is marked as drifted if ANY of the above criteria are met.
+                  </p>
+                </div>
+              </>
+            )}
+
             {/* Distribution Comparison */}
             <div className="glass rounded-lg p-6">
               <h3 className="text-lg font-semibold mb-4">Distribution Comparison</h3>

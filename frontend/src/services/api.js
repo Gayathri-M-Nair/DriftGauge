@@ -27,5 +27,8 @@ export const api = {
     axios.post(`${API_BASE}/projects/${projectId}/analyze`, { mode }),
   
   getAnalyses: (projectId) => 
-    axios.get(`${API_BASE}/projects/${projectId}/analyses`)
+    axios.get(`${API_BASE}/projects/${projectId}/analyses`),
+  
+  getAnalysisById: (analysisId) =>
+    axios.get(`${API_BASE}/analysis/${analysisId}`)
 };

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useLocation } from 'react-router-dom';
 import { Layers, AlertTriangle, TrendingUp, Clock, CheckCircle, Search, Download, FileText } from 'lucide-react';
 import { api } from '../services/api';
 import FeatureDetailPanel from '../components/FeatureDetailPanel';
 import DriftHistogram from '../components/DriftHistogram';
 
 const DashboardPage = ({ selectedProject }) => {
+  const location = useLocation();
   const [analysis, setAnalysis] = useState(null);
   const [selectedFeature, setSelectedFeature] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -13,8 +15,17 @@ const DashboardPage = ({ selectedProject }) => {
   const [filterMode, setFilterMode] = useState('all');
 
   useEffect(() => {
-    loadAnalysis();
-  }, [selectedProject]);
+    // Check if we have a fresh analysis result from navigation state
+    if (location.state?.analysisResult) {
+      setAnalysis(location.state.analysisResult);
+      setLoading(false);
+      // Clear the navigation state to prevent stale data
+      window.history.replaceState({}, document.title);
+    } else {
+      // Otherwise, load the latest analysis from the database
+      loadAnalysis();
+    }
+  }, [selectedProject, location.state]);
 
   const loadAnalysis = async () => {
     if (!selectedProject) return;
@@ -88,7 +99,12 @@ const DashboardPage = ({ selectedProject }) => {
           </div>
           <div>
             <h3 className="font-semibold">Analysis Completed!</h3>
-            <p className="text-sm text-slate-400">Drift analysis finished in 2.34 seconds.</p>
+            <p className="text-sm text-slate-400">
+              Drift analysis finished in {analysis.report.processing_time || '2.34'} seconds using {analysis.mode === 'fast' ? 'Fast Mode' : 'High Accuracy Mode'}.
+              {analysis.report.samples_used && (
+                <span> Analyzed {analysis.report.samples_used.baseline.toLocaleString()} baseline samples and {analysis.report.samples_used.current.toLocaleString()} current samples.</span>
+              )}
+            </p>
           </div>
         </div>
       </motion.div>
@@ -199,6 +215,12 @@ const DashboardPage = ({ selectedProject }) => {
                 <th>Feature</th>
                 <th>Drift Score</th>
                 <th>P-Value</th>
+                {analysis.mode === 'high_accuracy' && (
+                  <>
+                    <th>Wasserstein</th>
+                    <th>PSI</th>
+                  </>
+                )}
                 <th>Status</th>
               </tr>
             </thead>
@@ -236,6 +258,24 @@ const DashboardPage = ({ selectedProject }) => {
                       </div>
                     </td>
                     <td className="font-mono text-sm">{feature.p_value.toFixed(4)}</td>
+                    {analysis.mode === 'high_accuracy' && (
+                      <>
+                        <td className="font-mono text-sm text-purple-400">
+                          {feature.wasserstein_distance ? feature.wasserstein_distance.toFixed(3) : 'N/A'}
+                        </td>
+                        <td className="font-mono text-sm">
+                          {feature.psi_score !== undefined ? (
+                            <span className={
+                              feature.psi_score >= 0.25 ? 'text-red-400' :
+                              feature.psi_score >= 0.1 ? 'text-yellow-400' :
+                              'text-green-400'
+                            }>
+                              {feature.psi_score.toFixed(3)}
+                            </span>
+                          ) : 'N/A'}
+                        </td>
+                      </>
+                    )}
                     <td>
                       <span className={`status-pill status-${status.color}`}>
                         <span>{status.icon}</span>

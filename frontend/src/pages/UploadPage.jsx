@@ -44,8 +44,9 @@ const UploadPage = ({ selectedProject }) => {
     try {
       await api.uploadBaseline(selectedProject.id, baselineFile);
       await api.uploadCurrent(selectedProject.id, currentFile);
-      await api.analyzeDrift(selectedProject.id, mode);
-      navigate('/dashboard');
+      const response = await api.analyzeDrift(selectedProject.id, mode);
+      // Navigate to dashboard with the fresh analysis result
+      navigate('/dashboard', { state: { analysisResult: response.data } });
     } catch (error) {
       console.error('Analysis failed:', error);
       alert('Analysis failed. Please try again.');

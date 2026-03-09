@@ -110,3 +110,21 @@ def get_analyses(project_id: int, db: Session = Depends(get_db)):
             created_at=a.created_at
         ) for a in analyses
     ]
+
+@app.get("/analysis/{analysis_id}", response_model=schemas.AnalysisResponse)
+def get_analysis_by_id(analysis_id: int, db: Session = Depends(get_db)):
+    """Get a specific analysis by its ID"""
+    analysis = db.query(models.Analysis).filter(models.Analysis.id == analysis_id).first()
+    
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    return schemas.AnalysisResponse(
+        id=analysis.id,
+        project_id=analysis.project_id,
+        mode=analysis.mode,
+        drift_score=analysis.drift_score,
+        drifted_features=json.loads(analysis.drifted_features),
+        report=json.loads(analysis.report),
+        created_at=analysis.created_at
+    )
