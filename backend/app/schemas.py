@@ -17,6 +17,8 @@ class ProjectResponse(BaseModel):
 
 class AnalysisRequest(BaseModel):
     mode: str  # "fast" or "high_accuracy"
+    target_column: Optional[str] = None       # required only when model is uploaded
+    feature_columns: Optional[List[str]] = None
 
 class ModelDriftRequest(BaseModel):
     mode: str  # "fast" or "high_accuracy"

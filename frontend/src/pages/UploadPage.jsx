@@ -54,11 +54,12 @@ const UploadPage = ({ selectedProject }) => {
     try {
       await api.uploadBaseline(selectedProject.id, baselineFile);
       await api.uploadCurrent(selectedProject.id, currentFile);
-      
+
       let response;
-      if (enableModelMonitoring) {
+      if (enableModelMonitoring && modelFile) {
+        // Upload model first, then run unified analysis via /analyze
         await api.uploadModel(selectedProject.id, modelFile);
-        response = await api.analyzeModelDrift(selectedProject.id, mode, targetColumn);
+        response = await api.analyzeDrift(selectedProject.id, mode, targetColumn || null);
       } else {
         response = await api.analyzeDrift(selectedProject.id, mode);
       }

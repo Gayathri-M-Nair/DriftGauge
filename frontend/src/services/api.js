@@ -31,8 +31,12 @@ export const api = {
     });
   },
   
-  analyzeDrift: (projectId, mode) => 
-    axios.post(`${API_BASE}/projects/${projectId}/analyze`, { mode }),
+  analyzeDrift: (projectId, mode, targetColumn = null, featureColumns = null) =>
+    axios.post(`${API_BASE}/projects/${projectId}/analyze`, {
+      mode,
+      target_column: targetColumn,
+      feature_columns: featureColumns
+    }),
   
   analyzeModelDrift: (projectId, mode, targetColumn, featureColumns = null) =>
     axios.post(`${API_BASE}/projects/${projectId}/analyze-model-drift`, {

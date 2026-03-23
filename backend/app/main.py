@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 import pandas as pd
 import json
 import os
+import logging
 from pathlib import Path
 
 from .database import engine, get_db, Base
@@ -11,7 +12,24 @@ from . import models, schemas
 from .drift_engine import DriftDetector
 from .model_evaluator import ModelEvaluator
 
+# Enable INFO-level logging so AI helper messages appear in the console
+logging.basicConfig(level=logging.INFO, format="%(levelname)s [%(name)s] %(message)s")
+
 Base.metadata.create_all(bind=engine)
+
+# Startup Ollama connectivity check
+def _check_ollama():
+    import requests
+    try:
+        r = requests.get("http://localhost:11434/api/tags", timeout=5)
+        models_list = [m["name"] for m in r.json().get("models", [])]
+        print(f"[Startup] Ollama is running. Available models: {models_list}")
+        if not any("llama3" in m for m in models_list):
+            print("[Startup] WARNING: llama3 not found in Ollama. Run: ollama pull llama3")
+    except Exception as e:
+        print(f"[Startup] WARNING: Cannot reach Ollama at http://localhost:11434 — {e}")
+
+_check_ollama()
 
 app = FastAPI(title="DriftGauge API")
 
@@ -85,33 +103,95 @@ async def upload_model(project_id: int, file: UploadFile = File(...)):
 def analyze_drift(project_id: int, request: schemas.AnalysisRequest, db: Session = Depends(get_db)):
     baseline_path = UPLOAD_DIR / str(project_id) / "baseline.csv"
     current_path = UPLOAD_DIR / str(project_id) / "current.csv"
-    
+    model_path = MODEL_DIR / str(project_id) / "model.pkl"
+
     if not baseline_path.exists() or not current_path.exists():
         raise HTTPException(status_code=400, detail="Both datasets must be uploaded")
-    
+
     baseline_df = pd.read_csv(baseline_path)
     current_df = pd.read_csv(current_path)
-    
+
+    # --- Step 1: Always run drift analysis ---
     detector = DriftDetector()
-    result = detector.detect_drift(baseline_df, current_df, mode=request.mode)
-    
+    drift_result = detector.detect_drift(baseline_df, current_df, mode=request.mode)
+
+    # --- Step 2: Optionally run model evaluation if model is uploaded ---
+    model_metrics = None
+    feature_importance = {}
+    suggestions = []
+
+    if model_path.exists() and request.target_column:
+        # Validate target column
+        if request.target_column in baseline_df.columns and request.target_column in current_df.columns:
+            try:
+                evaluator = ModelEvaluator()
+                model_eval = evaluator.evaluate_model(
+                    evaluator.load_model(model_path),
+                    baseline_df,
+                    current_df,
+                    request.target_column,
+                    request.feature_columns
+                )
+                model_metrics = {
+                    'baseline_accuracy':  model_eval['baseline_metrics']['accuracy'],
+                    'baseline_precision': model_eval['baseline_metrics']['precision'],
+                    'baseline_recall':    model_eval['baseline_metrics']['recall'],
+                    'baseline_f1':        model_eval['baseline_metrics']['f1_score'],
+                    'current_accuracy':   model_eval['current_metrics']['accuracy'],
+                    'current_precision':  model_eval['current_metrics']['precision'],
+                    'current_recall':     model_eval['current_metrics']['recall'],
+                    'current_f1':         model_eval['current_metrics']['f1_score'],
+                    'performance_drop':   model_eval['performance_drop'],
+                    'has_degradation':    model_eval['has_degradation'],
+                }
+                feature_importance = model_eval['feature_importance']
+                suggestions = evaluator.generate_suggestions(drift_result, model_eval)
+
+                # Re-generate AI insights now that we have model metrics too
+                try:
+                    from .ai_helper import generate_ai_insights
+                    drift_summary = detector._build_drift_summary(
+                        drift_result["feature_scores"],
+                        drift_result["drifted_features"],
+                        drift_result["total_features"],
+                        drift_result["drift_score"],
+                        request.mode,
+                    )
+                    drift_summary["feature_importance"] = feature_importance
+                    drift_result["ai_insights"] = generate_ai_insights(drift_summary, model_metrics)
+                except Exception:
+                    pass  # keep the drift-only ai_insights already in drift_result
+
+            except Exception as e:
+                # Model eval failure must not break drift results
+                model_metrics = {"error": str(e)}
+
+    # --- Step 3: Build unified response ---
+    # Preserve all existing drift fields and append model fields
+    result = {
+        **drift_result,                          # all drift keys (feature_scores, drifted_features, etc.)
+        "model_metrics":      model_metrics,     # None if no model uploaded
+        "feature_importance": feature_importance,
+        "suggestions":        suggestions,
+    }
+
     analysis = models.Analysis(
         project_id=project_id,
         mode=request.mode,
-        drift_score=result["drift_score"],
-        drifted_features=json.dumps(result["drifted_features"]),
+        drift_score=drift_result["drift_score"],
+        drifted_features=json.dumps(drift_result["drifted_features"]),
         report=json.dumps(result)
     )
     db.add(analysis)
     db.commit()
     db.refresh(analysis)
-    
+
     return schemas.AnalysisResponse(
         id=analysis.id,
         project_id=analysis.project_id,
         mode=analysis.mode,
         drift_score=analysis.drift_score,
-        drifted_features=result["drifted_features"],
+        drifted_features=drift_result["drifted_features"],
         report=result,
         created_at=analysis.created_at
     )
@@ -151,49 +231,41 @@ def get_analysis_by_id(analysis_id: int, db: Session = Depends(get_db)):
 
 @app.post("/projects/{project_id}/analyze-model-drift")
 def analyze_model_drift(
-    project_id: int, 
-    request: schemas.ModelDriftRequest, 
+    project_id: int,
+    request: schemas.ModelDriftRequest,
     db: Session = Depends(get_db)
 ):
     """
-    Analyze both data drift and model performance degradation
-    
-    Requires:
-    - Baseline dataset
-    - Current dataset
-    - Trained model (.pkl file)
-    - Target column name
+    Legacy endpoint — kept for backward compatibility.
+    Now delegates to the same unified pipeline as /analyze.
     """
     baseline_path = UPLOAD_DIR / str(project_id) / "baseline.csv"
-    current_path = UPLOAD_DIR / str(project_id) / "current.csv"
-    model_path = MODEL_DIR / str(project_id) / "model.pkl"
-    
-    # Validate all required files exist
+    current_path  = UPLOAD_DIR / str(project_id) / "current.csv"
+    model_path    = MODEL_DIR  / str(project_id) / "model.pkl"
+
     if not baseline_path.exists():
         raise HTTPException(status_code=400, detail="Baseline dataset not uploaded")
     if not current_path.exists():
         raise HTTPException(status_code=400, detail="Current dataset not uploaded")
     if not model_path.exists():
         raise HTTPException(status_code=400, detail="Model not uploaded")
-    
-    # Load datasets
+
     baseline_df = pd.read_csv(baseline_path)
-    current_df = pd.read_csv(current_path)
-    
-    # Validate target column exists
+    current_df  = pd.read_csv(current_path)
+
     if request.target_column not in baseline_df.columns:
         raise HTTPException(status_code=400, detail=f"Target column '{request.target_column}' not found in baseline dataset")
     if request.target_column not in current_df.columns:
         raise HTTPException(status_code=400, detail=f"Target column '{request.target_column}' not found in current dataset")
-    
-    # Step 1: Perform drift detection
-    detector = DriftDetector()
+
+    # Step 1: Drift analysis
+    detector    = DriftDetector()
     drift_result = detector.detect_drift(baseline_df, current_df, mode=request.mode)
-    
-    # Step 2: Perform model evaluation
+
+    # Step 2: Model evaluation + unified response
     evaluator = ModelEvaluator()
     try:
-        model_drift_result = evaluator.analyze_model_drift(
+        result = evaluator.analyze_model_drift(
             model_path=model_path,
             baseline_df=baseline_df,
             current_df=current_df,
@@ -203,25 +275,24 @@ def analyze_model_drift(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Model evaluation failed: {str(e)}")
-    
-    # Save analysis to database
+
     analysis = models.Analysis(
         project_id=project_id,
         mode=request.mode,
         drift_score=drift_result["drift_score"],
         drifted_features=json.dumps(drift_result["drifted_features"]),
-        report=json.dumps(model_drift_result)
+        report=json.dumps(result)
     )
     db.add(analysis)
     db.commit()
     db.refresh(analysis)
-    
+
     return {
-        "id": analysis.id,
-        "project_id": analysis.project_id,
-        "mode": analysis.mode,
-        "drift_score": analysis.drift_score,
+        "id":               analysis.id,
+        "project_id":       analysis.project_id,
+        "mode":             analysis.mode,
+        "drift_score":      analysis.drift_score,
         "drifted_features": drift_result["drifted_features"],
-        "report": model_drift_result,
-        "created_at": analysis.created_at
+        "report":           result,
+        "created_at":       analysis.created_at
     }

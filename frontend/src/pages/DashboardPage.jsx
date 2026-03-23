@@ -486,19 +486,44 @@ const DashboardPage = ({ selectedProject }) => {
                   )}
                 </div>
 
-                {/* AI Drift Explanation - Placeholder */}
-                <div className="bg-[#1a1f2e] border border-[#2d3748] rounded-lg p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="M12 16v-4M12 8h.01" />
-                    </svg>
-                    <h3 className="font-semibold">AI Drift Explanation</h3>
-                  </div>
-                  <p className="text-sm text-slate-400 leading-relaxed">
-                    The {selectedFeature} distribution has shifted significantly. The mean has changed between baseline and current datasets, indicating demographic or behavioral changes in the data population. This drift could impact model performance if the model was trained on the baseline distribution.
-                  </p>
-                </div>
+                {/* AI Insights Panel */}
+                {(() => {
+                  const insights = analysis.report.ai_insights;
+                  if (!insights) return null;
+                  const sections = [
+                    { key: 'explanation',    label: 'Explanation',    icon: '🔍', color: 'blue' },
+                    { key: 'root_cause',     label: 'Root Cause',     icon: '🧬', color: 'orange' },
+                    { key: 'recommendation', label: 'Recommendation', icon: '💡', color: 'green' },
+                    { key: 'code_fix',       label: 'Code Fix',       icon: '🛠️', color: 'purple' },
+                  ];
+                  return (
+                    <div className="bg-[#0f1419] border border-[#2d3748] rounded-lg overflow-hidden">
+                      <div className="flex items-center gap-2 px-4 py-3 border-b border-[#2d3748] bg-[#1a1f2e]">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-400">
+                          <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+                        </svg>
+                        <span className="text-sm font-semibold text-slate-200">AI Drift Insights</span>
+                        <span className="ml-auto text-xs text-slate-500">llama3</span>
+                      </div>
+                      <div className="divide-y divide-[#2d3748]">
+                        {sections.map(({ key, label, icon }) => (
+                          <div key={key} className="p-4">
+                            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                              {icon} {label}
+                            </p>
+                            {key === 'code_fix' ? (
+                              <pre className="text-xs text-green-300 bg-[#0a0f14] rounded p-3 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed">
+                                {insights[key]}
+                              </pre>
+                            ) : (
+                              <p className="text-sm text-slate-300 leading-relaxed">{insights[key]}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </>
             )}
           </motion.div>

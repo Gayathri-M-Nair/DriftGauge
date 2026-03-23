@@ -5,6 +5,22 @@ from scipy.stats import wasserstein_distance
 from typing import Dict, List, Tuple
 import time
 
+# AI helper — imported here; failures are caught gracefully inside detect_drift
+try:
+    from .ai_helper import generate_ai_insights
+    _AI_AVAILABLE = True
+    print("[DriftEngine] AI helper loaded OK")
+except Exception as _ai_import_err:
+    _AI_AVAILABLE = False
+    print(f"[DriftEngine] AI helper import FAILED: {_ai_import_err}")
+
+_FALLBACK_INSIGHTS = {
+    "explanation":    "AI-generated explanations will appear here once Ollama is running.",
+    "root_cause":     "Root cause analysis unavailable.",
+    "recommendation": "Run Ollama locally to enable AI-powered recommendations.",
+    "code_fix":       "# AI code suggestions unavailable at this time.",
+}
+
 class DriftDetector:
     def __init__(self, threshold: float = 0.05, wasserstein_threshold: float = 0.1, psi_threshold: float = 0.25):
         self.threshold = threshold  # KS test p-value threshold
@@ -129,6 +145,52 @@ class DriftDetector:
     def get_numeric_columns(self, df: pd.DataFrame) -> List[str]:
         """Get list of numeric columns from dataframe"""
         return [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+
+    def _build_drift_summary(self, feature_scores: Dict, drifted_features: List[str], total_features: int, drift_score: float, mode: str) -> Dict:
+        """
+        Build a compact drift summary dict for the AI prompt.
+        Strips histogram data to keep the payload small but preserves
+        the original key names (ks_statistic, p_value, psi_score,
+        wasserstein_distance) so _build_context in ai_helper can read them.
+        """
+        clean_features = {}
+        for name, scores in feature_scores.items():
+            clean_features[name] = {
+                "ks_statistic":        round(scores.get("ks_statistic", 0), 4),
+                "p_value":             round(scores.get("p_value", 1), 4),
+                "psi_score":           round(scores["psi_score"], 4) if "psi_score" in scores else None,
+                "wasserstein_distance": round(scores["wasserstein_distance"], 4) if "wasserstein_distance" in scores else None,
+                "status":              "Significant Drift" if name in drifted_features else "No Drift",
+            }
+        return {
+            "mode":             mode,
+            "drift_score":      drift_score,
+            "total_features":   total_features,
+            "drifted_features": drifted_features,
+            "feature_scores":   clean_features,
+            "feature_importance": {},
+        }
+
+    def _get_ai_insights(self, drift_summary: Dict, model_metrics: Dict = None) -> Dict:
+        """
+        Call generate_ai_insights and return the structured dict.
+        Falls back to static messages if AI is unavailable or errors out.
+        """
+        if not _AI_AVAILABLE:
+            import logging
+            logging.getLogger(__name__).warning("AI helper not available — skipping AI insights")
+            return _FALLBACK_INSIGHTS
+        try:
+            insights = generate_ai_insights(drift_summary, model_metrics)
+            # Validate all four keys are present
+            for key in ("explanation", "root_cause", "recommendation", "code_fix"):
+                if key not in insights:
+                    insights[key] = _FALLBACK_INSIGHTS[key]
+            return insights
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error("AI insights generation failed: %s", exc, exc_info=True)
+            return _FALLBACK_INSIGHTS
     
     def detect_drift_fast(self, baseline_df: pd.DataFrame, current_df: pd.DataFrame) -> Dict:
         """
@@ -163,7 +225,11 @@ class DriftDetector:
         # Calculate drift score based on numeric columns only
         drift_score = len(drifted_features) / len(numeric_cols) if len(numeric_cols) > 0 else 0
         processing_time = time.time() - start_time
-        
+
+        # Generate structured AI insights from drift summary
+        drift_summary = self._build_drift_summary(feature_scores, drifted_features, len(numeric_cols), drift_score, "fast")
+        ai_insights = self._get_ai_insights(drift_summary)
+
         return {
             "mode": "fast",
             "drift_score": drift_score,
@@ -174,7 +240,8 @@ class DriftDetector:
             "samples_used": {
                 "baseline": len(baseline_sampled),
                 "current": len(current_sampled)
-            }
+            },
+            "ai_insights": ai_insights,
         }
     
     def detect_drift_accurate(self, baseline_df: pd.DataFrame, current_df: pd.DataFrame) -> Dict:
@@ -249,7 +316,11 @@ class DriftDetector:
         # Calculate drift score based on numeric columns only
         drift_score = len(drifted_features) / len(numeric_cols) if len(numeric_cols) > 0 else 0
         processing_time = time.time() - start_time
-        
+
+        # Generate structured AI insights from drift summary
+        drift_summary = self._build_drift_summary(feature_scores, drifted_features, len(numeric_cols), drift_score, "high_accuracy")
+        ai_insights = self._get_ai_insights(drift_summary)
+
         return {
             "mode": "high_accuracy",
             "drift_score": drift_score,
@@ -265,7 +336,8 @@ class DriftDetector:
                 "p_value": self.threshold,
                 "wasserstein": self.wasserstein_threshold,
                 "psi": self.psi_threshold
-            }
+            },
+            "ai_insights": ai_insights,
         }
     
     def detect_drift(self, baseline_df: pd.DataFrame, current_df: pd.DataFrame, mode: str = "fast") -> Dict:

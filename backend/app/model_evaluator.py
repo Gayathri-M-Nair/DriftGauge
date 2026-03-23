@@ -132,106 +132,104 @@ class ModelEvaluator:
 
     
     def generate_suggestions(
-        self, 
-        drift_report: Dict, 
+        self,
+        drift_report: Dict,
         model_evaluation: Dict
     ) -> List[str]:
         """
-        Generate actionable recommendations based on drift and model performance
-        
-        Args:
-            drift_report: Drift detection results
-            model_evaluation: Model evaluation results
-        
-        Returns:
-            List of recommendation strings
+        Generate actionable recommendations using BOTH drift and model performance.
+
+        Combined rules:
+        - High drift + performance drop  → retrain
+        - High drift + stable perf       → monitor closely
+        - Low drift  + performance drop  → data quality / label issue
+        - Critical feature (high importance + high drift) → targeted retrain
         """
         suggestions = []
-        
-        # Get drifted features and feature importance
-        drifted_features = drift_report.get('drifted_features', [])
-        feature_scores = drift_report.get('feature_scores', {})
+
+        drifted_features   = drift_report.get('drifted_features', [])
+        feature_scores     = drift_report.get('feature_scores', {})
+        drift_score        = drift_report.get('drift_score', 0)
         feature_importance = model_evaluation.get('feature_importance', {})
-        performance_drop = model_evaluation.get('performance_drop', 0)
-        has_degradation = model_evaluation.get('has_degradation', False)
-        
-        # Rule 1: Overall performance degradation
-        if has_degradation:
+        performance_drop   = model_evaluation.get('performance_drop', 0)
+        has_degradation    = model_evaluation.get('has_degradation', False)
+        baseline_metrics   = model_evaluation.get('baseline_metrics', {})
+        current_metrics    = model_evaluation.get('current_metrics', {})
+
+        high_drift = drift_score >= 0.4 or len(drifted_features) >= 3
+
+        # --- Combined scenario rules ---
+        if high_drift and has_degradation:
             suggestions.append(
-                f"⚠️ Model performance dropped by {performance_drop*100:.1f}%. "
-                f"Baseline accuracy: {model_evaluation['baseline_metrics']['accuracy']*100:.1f}%, "
-                f"Current accuracy: {model_evaluation['current_metrics']['accuracy']*100:.1f}%."
+                f"🔴 High drift ({drift_score:.0%}) combined with performance drop "
+                f"({performance_drop*100:.1f}%). Retrain the model on updated data immediately."
             )
-        
-        # Rule 2: Identify critical drifted features (high importance + significant drift)
-        critical_features = []
+        elif high_drift and not has_degradation:
+            suggestions.append(
+                f"🟡 Significant drift detected ({drift_score:.0%}) but model performance is stable. "
+                "Monitor closely — performance may degrade as drift accumulates."
+            )
+        elif not high_drift and has_degradation:
+            suggestions.append(
+                f"⚠️ Model performance dropped ({performance_drop*100:.1f}%) without significant feature drift. "
+                "Investigate label quality, data pipeline bugs, or hidden covariate shift."
+            )
+
+        # --- Performance summary (when model is present) ---
+        if baseline_metrics and current_metrics:
+            suggestions.append(
+                f"📊 Accuracy: {baseline_metrics.get('accuracy', 0)*100:.1f}% (baseline) → "
+                f"{current_metrics.get('accuracy', 0)*100:.1f}% (current)."
+            )
+
+        # --- Critical features: high importance + significant drift ---
+        critical_features = [
+            (f, feature_importance[f])
+            for f in drifted_features
+            if f in feature_importance and feature_importance[f] > self.feature_importance_threshold
+        ]
+        critical_features.sort(key=lambda x: x[1], reverse=True)
+
+        for feature, importance in critical_features[:3]:
+            info = feature_scores.get(feature, {})
+            psi  = info.get('psi_score', 0)
+            wass = info.get('wasserstein_distance', 0)
+            msg  = f"🔴 '{feature}' (importance {importance:.2f}) has drifted"
+            if psi >= 0.25:
+                msg += f" — PSI={psi:.2f}. Retrain or re-engineer this feature."
+            elif wass > 0.1:
+                msg += f" — Wasserstein={wass:.2f}. Check preprocessing and scaling."
+            else:
+                msg += ". Review data collection for this feature."
+            suggestions.append(msg)
+
+        # --- Many important features drifted ---
+        n_important_drifted = len(critical_features)
+        if n_important_drifted >= 3:
+            suggestions.append(
+                f"⚠️ {n_important_drifted} important features have drifted. "
+                "Full dataset retraining is strongly recommended."
+            )
+
+        # --- PSI-flagged features not already covered ---
+        mentioned = {f for f, _ in critical_features}
         for feature in drifted_features:
-            if feature in feature_importance:
-                importance = feature_importance[feature]
-                if importance > self.feature_importance_threshold:
-                    critical_features.append((feature, importance))
-        
-        if critical_features:
-            # Sort by importance
-            critical_features.sort(key=lambda x: x[1], reverse=True)
-            
-            for feature, importance in critical_features[:3]:  # Top 3
-                feature_info = feature_scores.get(feature, {})
-                psi = feature_info.get('psi_score', 0)
-                wasserstein = feature_info.get('wasserstein_distance', 0)
-                
-                suggestion = f"🔴 Critical: '{feature}' (importance: {importance:.2f}) has significant drift"
-                
-                if psi >= 0.25:
-                    suggestion += f" with PSI={psi:.2f}. Consider retraining the model with updated data."
-                elif wasserstein > 0.1:
-                    suggestion += f" with Wasserstein distance={wasserstein:.2f}. Verify feature preprocessing and scaling."
-                else:
-                    suggestion += ". Investigate data collection process for this feature."
-                
-                suggestions.append(suggestion)
-        
-        # Rule 3: Multiple important features drifted
-        important_drifted_count = len([f for f in drifted_features if feature_importance.get(f, 0) > self.feature_importance_threshold])
-        
-        if important_drifted_count >= 3:
-            suggestions.append(
-                f"⚠️ {important_drifted_count} important features have drifted. "
-                "Full model retraining with updated dataset is strongly recommended."
-            )
-        
-        # Rule 4: High drift but no performance drop (potential data quality issue)
-        if len(drifted_features) > 3 and not has_degradation:
-            suggestions.append(
-                "ℹ️ Significant drift detected but model performance is stable. "
-                "Monitor closely as drift may impact future predictions."
-            )
-        
-        # Rule 5: Specific feature-level recommendations
-        for feature in drifted_features:
-            if feature not in [f for f, _ in critical_features]:  # Skip already mentioned
-                feature_info = feature_scores.get(feature, {})
-                psi = feature_info.get('psi_score', 0)
-                
-                if psi >= 0.25:
-                    suggestions.append(
-                        f"🟡 Feature '{feature}' shows population shift (PSI={psi:.2f}). "
-                        "Review data distribution and consider feature engineering."
-                    )
-        
-        # Rule 6: No drift but performance drop (potential data quality or label issue)
-        if has_degradation and len(drifted_features) == 0:
-            suggestions.append(
-                "⚠️ Model performance dropped without significant feature drift. "
-                "Check for label quality issues or hidden data quality problems."
-            )
-        
-        # Rule 7: General recommendation if no specific issues
+            if feature in mentioned:
+                continue
+            psi = feature_scores.get(feature, {}).get('psi_score', 0)
+            if psi >= 0.25:
+                suggestions.append(
+                    f"🟡 '{feature}' shows population shift (PSI={psi:.2f}). "
+                    "Review distribution and consider feature engineering."
+                )
+
+        # --- All clear ---
         if not suggestions:
             suggestions.append(
-                "✅ No significant issues detected. Model performance is stable and drift is within acceptable limits."
+                "✅ No significant issues detected. "
+                "Model performance is stable and drift is within acceptable limits."
             )
-        
+
         return suggestions
     
     def analyze_model_drift(
@@ -244,48 +242,34 @@ class ModelEvaluator:
         feature_columns: Optional[List[str]] = None
     ) -> Dict:
         """
-        Complete model drift analysis pipeline
-        
-        Args:
-            model_path: Path to pickled model file
-            baseline_df: Baseline dataset
-            current_df: Current dataset
-            target_column: Target column name
-            drift_report: Drift detection results
-            feature_columns: Optional list of feature columns
-        
-        Returns:
-            Complete analysis with drift, model metrics, and suggestions
+        Complete model drift analysis pipeline — used by the legacy
+        /analyze-model-drift endpoint for backward compatibility.
         """
-        # Load model
         model = self.load_model(model_path)
-        
-        # Evaluate model
+
         model_evaluation = self.evaluate_model(
-            model, 
-            baseline_df, 
-            current_df, 
-            target_column,
-            feature_columns
+            model, baseline_df, current_df, target_column, feature_columns
         )
-        
-        # Generate suggestions
+
         suggestions = self.generate_suggestions(drift_report, model_evaluation)
-        
+
+        model_metrics = {
+            'baseline_accuracy':  model_evaluation['baseline_metrics']['accuracy'],
+            'baseline_precision': model_evaluation['baseline_metrics']['precision'],
+            'baseline_recall':    model_evaluation['baseline_metrics']['recall'],
+            'baseline_f1':        model_evaluation['baseline_metrics']['f1_score'],
+            'current_accuracy':   model_evaluation['current_metrics']['accuracy'],
+            'current_precision':  model_evaluation['current_metrics']['precision'],
+            'current_recall':     model_evaluation['current_metrics']['recall'],
+            'current_f1':         model_evaluation['current_metrics']['f1_score'],
+            'performance_drop':   model_evaluation['performance_drop'],
+            'has_degradation':    model_evaluation['has_degradation'],
+        }
+
+        # Build unified response — drift fields at top level + model fields
         return {
-            'data_drift': drift_report,
-            'model_metrics': {
-                'baseline_accuracy': model_evaluation['baseline_metrics']['accuracy'],
-                'baseline_precision': model_evaluation['baseline_metrics']['precision'],
-                'baseline_recall': model_evaluation['baseline_metrics']['recall'],
-                'baseline_f1': model_evaluation['baseline_metrics']['f1_score'],
-                'current_accuracy': model_evaluation['current_metrics']['accuracy'],
-                'current_precision': model_evaluation['current_metrics']['precision'],
-                'current_recall': model_evaluation['current_metrics']['recall'],
-                'current_f1': model_evaluation['current_metrics']['f1_score'],
-                'performance_drop': model_evaluation['performance_drop'],
-                'has_degradation': model_evaluation['has_degradation']
-            },
+            **drift_report,
+            'model_metrics':      model_metrics,
             'feature_importance': model_evaluation['feature_importance'],
-            'suggestions': suggestions
+            'suggestions':        suggestions,
         }
