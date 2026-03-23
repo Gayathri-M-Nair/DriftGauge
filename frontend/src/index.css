@@ -84,34 +84,113 @@ body {
   border-color: #374151;
 }
 
-/* Status Pills */
-.status-pill {
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
+/* Status Pills — PSI-graded badges */
+.badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 
-.status-significant {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.status-moderate {
-  background: rgba(251, 191, 36, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(251, 191, 36, 0.3);
-}
-
-.status-slight {
-  background: rgba(34, 197, 94, 0.15);
+.badge-stable {
+  background: rgba(34, 197, 94, 0.12);
   color: #4ade80;
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  border: 1px solid rgba(34, 197, 94, 0.25);
 }
+
+.badge-monitor {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+.badge-critical {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.badge-stable .badge-dot  { background: #4ade80; }
+.badge-monitor .badge-dot { background: #fbbf24; }
+.badge-critical .badge-dot{ background: #f87171; }
+
+/* AI Insights Panel */
+.ai-panel {
+  background: #0f1419;
+  border: 1px solid #2d3748;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ai-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: linear-gradient(90deg, #1a1f2e 0%, #1e2438 100%);
+  border-bottom: 1px solid #2d3748;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid #1f2937;
+}
+
+.ai-section:last-child {
+  border-bottom: none;
+}
+
+.ai-section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+}
+
+.ai-section-label.explanation  { color: #60a5fa; }
+.ai-section-label.root_cause   { color: #fb923c; }
+.ai-section-label.recommendation { color: #34d399; }
+.ai-section-label.code_fix     { color: #c084fc; }
+
+.ai-section-text {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: #cbd5e1;
+}
+
+.ai-code-block {
+  background: #070b10;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #86efac;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 280px;
+  white-space: pre;
+}
+
 
 /* Button Styles */
 button {
