@@ -182,6 +182,89 @@ const DashboardPage = ({ selectedProject }) => {
             </motion.div>
           </div>
 
+          {/* Model Performance Analysis (if available) */}
+          {analysis.report.model_metrics && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="card p-6"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-400">
+                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+                </svg>
+                <h2 className="text-xl font-bold">Model Performance Analysis</h2>
+              </div>
+
+              {analysis.report.model_metrics.has_degradation && (
+                <div className="bg-red-500 bg-opacity-10 border border-red-500 rounded-lg p-4 mb-4">
+                  <div className="flex items-center gap-2 text-red-400">
+                    <AlertTriangle size={20} />
+                    <span className="font-semibold">Model Performance Degradation Detected</span>
+                  </div>
+                  <p className="text-sm text-slate-300 mt-2">
+                    Performance dropped by {(analysis.report.model_metrics.performance_drop * 100).toFixed(1)}%. 
+                    Review the suggestions below for recommended actions.
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-4 gap-4 mb-6">
+                <div className="bg-[#1a1f2e] rounded-lg p-4">
+                  <p className="text-xs text-slate-400 mb-1">Baseline Accuracy</p>
+                  <p className="text-2xl font-bold text-green-400">
+                    {(analysis.report.model_metrics.baseline_accuracy * 100).toFixed(1)}%
+                  </p>
+                </div>
+                <div className="bg-[#1a1f2e] rounded-lg p-4">
+                  <p className="text-xs text-slate-400 mb-1">Current Accuracy</p>
+                  <p className={`text-2xl font-bold ${
+                    analysis.report.model_metrics.has_degradation ? 'text-red-400' : 'text-green-400'
+                  }`}>
+                    {(analysis.report.model_metrics.current_accuracy * 100).toFixed(1)}%
+                  </p>
+                </div>
+                <div className="bg-[#1a1f2e] rounded-lg p-4">
+                  <p className="text-xs text-slate-400 mb-1">Baseline F1 Score</p>
+                  <p className="text-2xl font-bold text-blue-400">
+                    {(analysis.report.model_metrics.baseline_f1 * 100).toFixed(1)}%
+                  </p>
+                </div>
+                <div className="bg-[#1a1f2e] rounded-lg p-4">
+                  <p className="text-xs text-slate-400 mb-1">Current F1 Score</p>
+                  <p className={`text-2xl font-bold ${
+                    analysis.report.model_metrics.has_degradation ? 'text-red-400' : 'text-blue-400'
+                  }`}>
+                    {(analysis.report.model_metrics.current_f1 * 100).toFixed(1)}%
+                  </p>
+                </div>
+              </div>
+
+              {/* Suggestions */}
+              {analysis.report.suggestions && analysis.report.suggestions.length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                    </svg>
+                    Recommended Actions
+                  </h3>
+                  <div className="space-y-2">
+                    {analysis.report.suggestions.map((suggestion, index) => (
+                      <div
+                        key={index}
+                        className="bg-[#1a1f2e] border border-[#2d3748] rounded-lg p-3 text-sm text-slate-300"
+                      >
+                        {suggestion}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
           {/* Feature Drift Table */}
           <div className="card p-6">
             <div className="flex items-center justify-between mb-4">

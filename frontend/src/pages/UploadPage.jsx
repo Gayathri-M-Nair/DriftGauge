@@ -8,6 +8,9 @@ const UploadPage = ({ selectedProject }) => {
   const navigate = useNavigate();
   const [baselineFile, setBaselineFile] = useState(null);
   const [currentFile, setCurrentFile] = useState(null);
+  const [modelFile, setModelFile] = useState(null);
+  const [targetColumn, setTargetColumn] = useState('');
+  const [enableModelMonitoring, setEnableModelMonitoring] = useState(false);
   const [mode, setMode] = useState('high_accuracy');
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(null);
@@ -16,9 +19,11 @@ const UploadPage = ({ selectedProject }) => {
     e.preventDefault();
     setDragOver(null);
     const file = e.dataTransfer.files[0];
-    if (file && file.name.endsWith('.csv')) {
+    if (type === 'model' && file && file.name.endsWith('.pkl')) {
+      setModelFile(file);
+    } else if (file && file.name.endsWith('.csv')) {
       if (type === 'baseline') setBaselineFile(file);
-      else setCurrentFile(file);
+      else if (type === 'current') setCurrentFile(file);
     }
   };
 
@@ -26,7 +31,8 @@ const UploadPage = ({ selectedProject }) => {
     const file = e.target.files[0];
     if (file) {
       if (type === 'baseline') setBaselineFile(file);
-      else setCurrentFile(file);
+      else if (type === 'current') setCurrentFile(file);
+      else if (type === 'model') setModelFile(file);
     }
   };
 
@@ -39,17 +45,29 @@ const UploadPage = ({ selectedProject }) => {
       alert('Please upload both datasets');
       return;
     }
+    if (enableModelMonitoring && (!modelFile || !targetColumn)) {
+      alert('Please upload model file and specify target column for ML monitoring');
+      return;
+    }
 
     setLoading(true);
     try {
       await api.uploadBaseline(selectedProject.id, baselineFile);
       await api.uploadCurrent(selectedProject.id, currentFile);
-      const response = await api.analyzeDrift(selectedProject.id, mode);
+      
+      let response;
+      if (enableModelMonitoring) {
+        await api.uploadModel(selectedProject.id, modelFile);
+        response = await api.analyzeModelDrift(selectedProject.id, mode, targetColumn);
+      } else {
+        response = await api.analyzeDrift(selectedProject.id, mode);
+      }
+      
       // Navigate to dashboard with the fresh analysis result
       navigate('/dashboard', { state: { analysisResult: response.data } });
     } catch (error) {
       console.error('Analysis failed:', error);
-      alert('Analysis failed. Please try again.');
+      alert('Analysis failed: ' + (error.response?.data?.detail || error.message));
     } finally {
       setLoading(false);
     }
@@ -199,6 +217,113 @@ const UploadPage = ({ selectedProject }) => {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ML Model Monitoring (Optional) */}
+      <div className="card p-6 mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="font-semibold mb-1">ML Model Monitoring (Optional)</h2>
+            <p className="text-sm text-slate-400">Upload your trained model to detect performance degradation</p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={enableModelMonitoring}
+              onChange={(e) => setEnableModelMonitoring(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-[#2d3748] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#2563eb]"></div>
+          </label>
+        </div>
+
+        {enableModelMonitoring && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            className="space-y-4"
+          >
+            {/* Model Upload */}
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-2">
+                Upload Trained Model (.pkl file)
+              </label>
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver('model'); }}
+                onDragLeave={() => setDragOver(null)}
+                onDrop={(e) => handleDrop(e, 'model')}
+                className={`border-2 border-dashed rounded-lg p-6 text-center transition-all ${
+                  dragOver === 'model' ? 'border-[#2563eb] bg-[#2563eb] bg-opacity-5' : 'border-[#2d3748]'
+                }`}
+              >
+                {modelFile ? (
+                  <div className="flex items-center justify-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-green-500 bg-opacity-20 flex items-center justify-center">
+                      <Check size={20} className="text-green-500" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-medium text-green-500">Model Uploaded</p>
+                      <p className="text-xs text-slate-400">{modelFile.name}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center gap-4">
+                    <Upload size={32} className="text-slate-500" />
+                    <div className="text-left">
+                      <p className="text-sm text-slate-300 mb-1">Upload .pkl model file</p>
+                      <p className="text-xs text-slate-500">Supports: Logistic Regression, Random Forest, Gradient Boosting, XGBoost</p>
+                    </div>
+                    <label className="px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] rounded-lg cursor-pointer text-sm font-medium transition-colors">
+                      Browse
+                      <input
+                        type="file"
+                        accept=".pkl"
+                        onChange={(e) => handleFileInput(e, 'model')}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Target Column Input */}
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-2">
+                Target Column Name
+              </label>
+              <input
+                type="text"
+                value={targetColumn}
+                onChange={(e) => setTargetColumn(e.target.value)}
+                placeholder="e.g., target, label, class"
+                className="w-full px-4 py-3 rounded-lg bg-[#1a1f2e] border border-[#2d3748] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#2563eb]"
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                The name of the column containing the target/label values in your datasets
+              </p>
+            </div>
+
+            {/* Info Box */}
+            <div className="bg-[#1a1f2e] border border-[#2d3748] rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-400 flex-shrink-0 mt-0.5">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 16v-4M12 8h.01" />
+                </svg>
+                <div className="text-sm text-slate-400">
+                  <p className="font-medium text-slate-300 mb-1">What you'll get:</p>
+                  <ul className="space-y-1 text-xs">
+                    <li>• Model performance metrics (Accuracy, Precision, Recall, F1)</li>
+                    <li>• Performance degradation detection</li>
+                    <li>• Feature importance analysis</li>
+                    <li>• Automated recommendations for fixing issues</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
       </div>
 
       {/* Processing Mode */}

@@ -141,7 +141,7 @@ const Sidebar = ({ selectedProject, setSelectedProject }) => {
               value={newProjectName}
               onChange={(e) => setNewProjectName(e.target.value)}
               placeholder="Enter project name"
-              className="w-full px-4 py-2.5 rounded-lg mb-4 text-sm"
+              className="w-full px-4 py-2.5 rounded-lg mb-4 text-sm bg-[#0f1419] border border-[#2d3748] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#2563eb]"
               onKeyPress={(e) => e.key === 'Enter' && createProject()}
               autoFocus
             />

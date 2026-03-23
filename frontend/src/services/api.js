@@ -23,8 +23,23 @@ export const api = {
     });
   },
   
+  uploadModel: (projectId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return axios.post(`${API_BASE}/projects/${projectId}/upload-model`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+  
   analyzeDrift: (projectId, mode) => 
     axios.post(`${API_BASE}/projects/${projectId}/analyze`, { mode }),
+  
+  analyzeModelDrift: (projectId, mode, targetColumn, featureColumns = null) =>
+    axios.post(`${API_BASE}/projects/${projectId}/analyze-model-drift`, {
+      mode,
+      target_column: targetColumn,
+      feature_columns: featureColumns
+    }),
   
   getAnalyses: (projectId) => 
     axios.get(`${API_BASE}/projects/${projectId}/analyses`),

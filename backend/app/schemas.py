@@ -18,6 +18,11 @@ class ProjectResponse(BaseModel):
 class AnalysisRequest(BaseModel):
     mode: str  # "fast" or "high_accuracy"
 
+class ModelDriftRequest(BaseModel):
+    mode: str  # "fast" or "high_accuracy"
+    target_column: str
+    feature_columns: Optional[List[str]] = None
+
 class AnalysisResponse(BaseModel):
     id: int
     project_id: int

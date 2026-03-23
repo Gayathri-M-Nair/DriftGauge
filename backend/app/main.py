@@ -9,6 +9,7 @@ from pathlib import Path
 from .database import engine, get_db, Base
 from . import models, schemas
 from .drift_engine import DriftDetector
+from .model_evaluator import ModelEvaluator
 
 Base.metadata.create_all(bind=engine)
 
@@ -24,6 +25,9 @@ app.add_middleware(
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+MODEL_DIR = Path("models")
+MODEL_DIR.mkdir(exist_ok=True)
 
 @app.post("/projects", response_model=schemas.ProjectResponse)
 def create_project(project: schemas.ProjectCreate, db: Session = Depends(get_db)):
@@ -60,6 +64,22 @@ async def upload_current(project_id: int, file: UploadFile = File(...)):
         f.write(content)
     
     return {"message": "Current dataset uploaded"}
+
+@app.post("/projects/{project_id}/upload-model")
+async def upload_model(project_id: int, file: UploadFile = File(...)):
+    """Upload a trained ML model (.pkl file)"""
+    if not file.filename.endswith('.pkl'):
+        raise HTTPException(status_code=400, detail="Only .pkl files are supported")
+    
+    project_dir = MODEL_DIR / str(project_id)
+    project_dir.mkdir(exist_ok=True)
+    
+    file_path = project_dir / "model.pkl"
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    
+    return {"message": "Model uploaded successfully"}
 
 @app.post("/projects/{project_id}/analyze", response_model=schemas.AnalysisResponse)
 def analyze_drift(project_id: int, request: schemas.AnalysisRequest, db: Session = Depends(get_db)):
@@ -128,3 +148,80 @@ def get_analysis_by_id(analysis_id: int, db: Session = Depends(get_db)):
         report=json.loads(analysis.report),
         created_at=analysis.created_at
     )
+
+@app.post("/projects/{project_id}/analyze-model-drift")
+def analyze_model_drift(
+    project_id: int, 
+    request: schemas.ModelDriftRequest, 
+    db: Session = Depends(get_db)
+):
+    """
+    Analyze both data drift and model performance degradation
+    
+    Requires:
+    - Baseline dataset
+    - Current dataset
+    - Trained model (.pkl file)
+    - Target column name
+    """
+    baseline_path = UPLOAD_DIR / str(project_id) / "baseline.csv"
+    current_path = UPLOAD_DIR / str(project_id) / "current.csv"
+    model_path = MODEL_DIR / str(project_id) / "model.pkl"
+    
+    # Validate all required files exist
+    if not baseline_path.exists():
+        raise HTTPException(status_code=400, detail="Baseline dataset not uploaded")
+    if not current_path.exists():
+        raise HTTPException(status_code=400, detail="Current dataset not uploaded")
+    if not model_path.exists():
+        raise HTTPException(status_code=400, detail="Model not uploaded")
+    
+    # Load datasets
+    baseline_df = pd.read_csv(baseline_path)
+    current_df = pd.read_csv(current_path)
+    
+    # Validate target column exists
+    if request.target_column not in baseline_df.columns:
+        raise HTTPException(status_code=400, detail=f"Target column '{request.target_column}' not found in baseline dataset")
+    if request.target_column not in current_df.columns:
+        raise HTTPException(status_code=400, detail=f"Target column '{request.target_column}' not found in current dataset")
+    
+    # Step 1: Perform drift detection
+    detector = DriftDetector()
+    drift_result = detector.detect_drift(baseline_df, current_df, mode=request.mode)
+    
+    # Step 2: Perform model evaluation
+    evaluator = ModelEvaluator()
+    try:
+        model_drift_result = evaluator.analyze_model_drift(
+            model_path=model_path,
+            baseline_df=baseline_df,
+            current_df=current_df,
+            target_column=request.target_column,
+            drift_report=drift_result,
+            feature_columns=request.feature_columns
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Model evaluation failed: {str(e)}")
+    
+    # Save analysis to database
+    analysis = models.Analysis(
+        project_id=project_id,
+        mode=request.mode,
+        drift_score=drift_result["drift_score"],
+        drifted_features=json.dumps(drift_result["drifted_features"]),
+        report=json.dumps(model_drift_result)
+    )
+    db.add(analysis)
+    db.commit()
+    db.refresh(analysis)
+    
+    return {
+        "id": analysis.id,
+        "project_id": analysis.project_id,
+        "mode": analysis.mode,
+        "drift_score": analysis.drift_score,
+        "drifted_features": drift_result["drifted_features"],
+        "report": model_drift_result,
+        "created_at": analysis.created_at
+    }
